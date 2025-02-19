@@ -87,7 +87,7 @@ void CRobot2DPoseEstimator::processUpdateNewOdometry(
                    "be >0, and it's "
                 << dT << "\n";
   }
-
+  
   // First, update velocities:
   if (hasVelocities)
   {
@@ -102,10 +102,16 @@ void CRobot2DPoseEstimator::processUpdateNewOdometry(
     // we don't use velocities.
     m_robot_vel_local = TTwist2D(.0, .0, .0);
   }
-
+  static bool first_odom=0;
+ 
   // And now times & odo:
   m_last_odo_time = cur_tim;
   m_last_odo = newGlobalOdometry;
+   if(!first_odom)
+  {
+    // m_loc_odo_ref=m_last_odo;
+    first_odom=1;
+  }
 
   MRPT_END
 }
@@ -164,15 +170,17 @@ bool CRobot2DPoseEstimator::getLatestRobotPose(TPose2D& pose) const
     pose = (CPose2D(m_last_loc) + (CPose2D(m_last_odo) - CPose2D(m_loc_odo_ref))).asTPose();
   else
     pose = m_last_loc;
-
+  
   return true;
 }
+
 
 // An auxiliary method to extrapolate the pose of a robot located at "p"
 //  with velocities (v,w) after a time delay "delta_time".
 void CRobot2DPoseEstimator::extrapolateRobotPose(
     const TPose2D& p, const mrpt::math::TTwist2D& velLocal, const double delta_time, TPose2D& new_p)
 {
+  //  std::cerr<<"last_px: "<<p.x <<"new_px: "<<new_p.x<<"Vx: "<<velLocal.vx<<"Vy: "<<velLocal.vy<<std::endl;
   if (velLocal.vx == 0 && velLocal.vy == 0 && velLocal.omega == 0)
   {  // Still
     new_p = p;

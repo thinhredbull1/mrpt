@@ -121,6 +121,10 @@ void CMetricMapBuilderICP::TConfigParams::dumpToTextStream(std::ostream& out) co
   was processActionObservation, which now is a wrapper to
   this method).
   ---------------------------------------------------------------*/
+void CMetricMapBuilderICP::setMirrorSignal(bool mirror_signal)
+{
+  has_mirror_signal = !mirror_signal;
+}
 void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
 {
   auto lck = mrpt::lockHelper(critZoneChangingMap);
@@ -134,34 +138,71 @@ void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
         "after setting ICP_options.mapInitializers?");
 
   ASSERT_(obs);
-
+  // MRPT_LOG_DEBUG_STREAM(
+  //         "processObservation(): obs is"
+  //         << obs);
   // Is it an odometry observation??
   if (IS_CLASS(*obs, CObservationOdometry))
   {
-    MRPT_LOG_DEBUG("processObservation(): obs is CObservationOdometry");
-    m_there_has_been_an_odometry = true;
-
+    static int count_ = 0;
+    count_++;
+    static bool first_odom = 0;
     const CObservationOdometry::Ptr odo = std::dynamic_pointer_cast<CObservationOdometry>(obs);
-    ASSERT_(odo->timestamp != INVALID_TIMESTAMP);
-
-    CPose2D pose_before;
-    bool pose_before_valid = m_lastPoseEst.getLatestRobotPose(pose_before);
-
-    // Move our estimation:
-    m_lastPoseEst.processUpdateNewOdometry(
-        odo->odometry.asTPose(), odo->timestamp, odo->hasVelocities, odo->velocityLocal);
-
-    if (pose_before_valid)
+    if (has_mirror_signal && first_odom)
     {
-      // Accumulate movement:
-      CPose2D pose_after;
-      if (m_lastPoseEst.getLatestRobotPose(pose_after))
-        this->accumulateRobotDisplacementCounters(pose_after);
-      MRPT_LOG_DEBUG_STREAM(
-          "processObservation(): obs is CObservationOdometry, new "
-          "post_after="
-          << pose_after);
+      CPose2D pose_before;
+      bool pose_before_valid_ = m_lastPoseEst.getLatestRobotPose(pose_before);
+      if (pose_before_valid_)
+      {
+        m_lastPoseEst.processUpdateNewPoseLocalization(odo->odometry.asTPose(), odo->timestamp);
+        CPose2D robot_pose_now;
+        if (m_lastPoseEst.getLatestRobotPose(robot_pose_now))
+          this->accumulateRobotDisplacementCounters(robot_pose_now);  // currentKnownRobotPose -
+        if (count_ >= 20)
+        {
+          MRPT_LOG_DEBUG_STREAM(
+              "processObservation(): obs is mirror "
+              "post_after="
+              << robot_pose_now);
+          count_ = 0;
+        }
+      }
+      // previousKnownRobotPose);
     }
+
+    else
+    {
+      first_odom = 1;
+      // MRPT_LOG_DEBUG("processObservation(): obs is CObservationOdometry");
+      m_there_has_been_an_odometry = true;
+
+      // const CObservationOdometry::Ptr odo = std::dynamic_pointer_cast<CObservationOdometry>(obs);
+      ASSERT_(odo->timestamp != INVALID_TIMESTAMP);
+
+      CPose2D pose_before;
+      bool pose_before_valid = m_lastPoseEst.getLatestRobotPose(pose_before);
+
+      // Move our estimation:
+      m_lastPoseEst.processUpdateNewOdometry(
+          odo->odometry.asTPose(), odo->timestamp, odo->hasVelocities, odo->velocityLocal);
+
+      if (pose_before_valid)
+      {
+        // Accumulate movement:
+        CPose2D pose_after;
+        if (m_lastPoseEst.getLatestRobotPose(pose_after))
+          this->accumulateRobotDisplacementCounters(pose_after);
+        if (count_ >= 20)
+        {
+          MRPT_LOG_DEBUG_STREAM(
+              "processObservation(): obs is CObservationOdometry, new "
+              "post_after="
+              << pose_after << "pose before=" << pose_before);
+          count_ = 0;
+        }
+      }
+    }
+
   }  // end it's odometry
   else
   {
@@ -173,9 +214,10 @@ void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
       mrpt::math::TTwist2D robotVelLocal, robotVelGlobal;
       if (obs->timestamp != INVALID_TIMESTAMP)
       {
-        MRPT_LOG_DEBUG(
-            "processObservation(): extrapolating pose from latest pose "
-            "and new observation timestamp...");
+        // MRPT_LOG_DEBUG(
+        //     "processObservation(): extrapolating pose from latest pose "
+        //     "and new observation timestamp...");
+        // MRPT_LOG_DEBUG_STREAM("robot vel local: x: "<<robotVelLocal.vx<<" Y:"<<robotVelLocal.vy);
         if (!m_lastPoseEst.getCurrentEstimate(
                 initialEstimatedRobotPose, robotVelLocal, robotVelGlobal, obs->timestamp))
         {  // couldn't had a good extrapolation
@@ -208,17 +250,20 @@ void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
     //  - We had some odometry since the last pose correction
     //  (m_there_has_been_an_odometry=true).
     //  - AND, the traversed distance is small enough:
-    const bool we_skip_ICP_pose_correction =
+    bool we_skip_ICP_pose_correction =
         m_there_has_been_an_odometry &&
         m_distSinceLastICP.lin <
             std::min(ICP_options.localizationLinDistance, ICP_options.insertionLinDistance) &&
         m_distSinceLastICP.ang <
             std::min(ICP_options.localizationAngDistance, ICP_options.insertionAngDistance);
 
-    MRPT_LOG_DEBUG_STREAM(
-        "processObservation(): skipping ICP pose correction due to small "
-        "odometric displacement? : "
-        << (we_skip_ICP_pose_correction ? "YES" : "NO"));
+    // MRPT_LOG_DEBUG_STREAM(
+    //     "processObservation(): skipping ICP pose correction due to small "
+    //     "odometric displacement? : "
+    //     << (we_skip_ICP_pose_correction ? "YES" : "NO")
+    //     << "odom get:" << m_there_has_been_an_odometry << "distance:" << m_distSinceLastICP.lin);
+    if (has_mirror_signal) we_skip_ICP_pose_correction = true;
+    // MRPT_LOG_DEBUG_STREAM("HAS_MIRROR_SIGNAL:"<<has_mirror_signal);
 
     CICP::TReturnInfo icpReturn;
     bool can_do_icp = false;
@@ -229,7 +274,7 @@ void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
         ICP_options.matchAgainstTheGrid && pGrid)
     {
       matchWith = static_cast<CMetricMap*>(pGrid.get());
-      MRPT_LOG_DEBUG("processObservation(): matching against gridmap.");
+      // MRPT_LOG_DEBUG("processObservation(): matching against gridmap.");
     }
     else
     {
@@ -237,7 +282,7 @@ void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
       ASSERTMSG_(pPts, "No points map in multi-metric map.");
 
       matchWith = static_cast<CMetricMap*>(pPts.get());
-      MRPT_LOG_DEBUG("processObservation(): matching against point map.");
+      // MRPT_LOG_DEBUG("processObservation(): matching against point map.");
     }
     ASSERT_(matchWith != nullptr);
 
@@ -293,7 +338,7 @@ void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
 
         // a first gross estimation of map 2 relative to map 1.
         const auto firstGuess = mrpt::poses::CPose2D(initialEstimatedRobotPose);
-
+        MRPT_LOG_INFO_STREAM("processObservation():Init pose icp:" << firstGuess << std::endl);
         CPosePDF::Ptr pestPose = ICP.Align(
             matchWith,      // Map 1
             &sensedPoints,  // Map 2
@@ -304,7 +349,9 @@ void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
           // save estimation:
           CPosePDFGaussian pEst2D;
           pEst2D.copyFrom(*pestPose);
-
+          // MRPT_LOG_INFO_STREAM(
+          //     "new_icp:" << previousKnownRobotPose << "-> currentPose="
+          //                                         << pEst2D.mean.asTPose()<< std::endl);
           m_lastPoseEst.processUpdateNewPoseLocalization(pEst2D.mean.asTPose(), obs->timestamp);
           m_lastPoseEst_cov = pEst2D.cov;
 
@@ -368,9 +415,9 @@ void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
     //  against an empty map!!
     if (matchWith && matchWith->isEmpty()) update = true;
 
-    MRPT_LOG_DEBUG_STREAM(
-        "update map: " << (update ? "YES" : "NO") << " options.enableMapUpdating: "
-                       << (options.enableMapUpdating ? "YES" : "NO"));
+    // MRPT_LOG_DEBUG_STREAM(
+    //     "update map: " << (update ? "YES" : "NO") << " options.enableMapUpdating: "
+    //                    << (options.enableMapUpdating ? "YES" : "NO"));
 
     if (options.enableMapUpdating && update)
     {
@@ -413,6 +460,8 @@ void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
       MRPT_LOG_INFO_STREAM(
           "Map updated OK. Done in " << mrpt::system::formatTimeInterval(tictac.Tac())
                                      << std::endl);
+      // MRPT_LOG_INFO_STREAM(
+      //       "NEW MAPBUILDER ICP"<< std::endl);
     }
 
   }  // end other observation
@@ -442,12 +491,20 @@ void CMetricMapBuilderICP::processActionObservation(CActionCollection& action, C
 
     CObservationOdometry::Ptr obs = std::make_shared<CObservationOdometry>();
     obs->timestamp = movEstimation->timestamp;
+    MRPT_LOG_INFO_STREAM("thinh update code" << std::endl);
+
     obs->odometry = m_auxAccumOdometry;
+    MRPT_LOG_INFO_STREAM(obs->odometry << std::endl);
     this->processObservation(obs);
   }
-
+  // MRPT_LOG_INFO_STREAM(
+  //             "thinh update code" << std::endl);
   // 2) Process observations one by one:
-  for (auto& i : in_SF) this->processObservation(i);
+  for (auto& i : in_SF)
+  {
+    // MRPT_LOG_INFO_STREAM("thinh update code2" << std::endl);
+    this->processObservation(i);
+  }
 }
 
 /*---------------------------------------------------------------

@@ -152,7 +152,7 @@ class CMetricMapBuilderICP : public mrpt::slam::CMetricMapBuilder
    * \param formatEMF_BMP Output format = true:EMF, false:BMP
    */
   void saveCurrentEstimationToImage(const std::string& file, bool formatEMF_BMP = true) override;
-
+  void setMirrorSignal(bool mirror_signal);
  private:
   /** The set of observations that leads to current map: */
   mrpt::maps::CSimpleMap SF_Poses_seq;
@@ -189,9 +189,10 @@ class CMetricMapBuilderICP : public mrpt::slam::CMetricMapBuilder
   /** Indexed by sensor label. */
   std::map<std::string, TDist> m_distSinceLastInsertion;
   bool m_there_has_been_an_odometry{false};
-
+  bool has_mirror_signal{true};
   void accumulateRobotDisplacementCounters(const mrpt::poses::CPose2D& new_pose);
   void resetRobotDisplacementCounters(const mrpt::poses::CPose2D& new_pose);
+  
 };
 
 }  // namespace mrpt::slam

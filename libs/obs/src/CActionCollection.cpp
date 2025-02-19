@@ -89,7 +89,6 @@ CActionRobotMovement2D::Ptr CActionCollection::getBestMovementEstimation() const
 {
   CActionRobotMovement2D::Ptr bestEst;
   double bestDet = 1e3;
-
   // Find the best
   for (const auto& it : *this)
   {
@@ -113,7 +112,6 @@ CActionRobotMovement2D::Ptr CActionCollection::getBestMovementEstimation() const
       }
     }
   }
-
   return bestEst;
 }
 
