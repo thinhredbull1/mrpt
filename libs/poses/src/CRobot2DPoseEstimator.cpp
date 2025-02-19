@@ -115,7 +115,9 @@ void CRobot2DPoseEstimator::processUpdateNewOdometry(
 
   MRPT_END
 }
-
+void CRobot2DPoseEstimator::updateOdomLostMirror(){
+  m_loc_odo_ref=m_last_odo;
+}
 bool CRobot2DPoseEstimator::getCurrentEstimate(
     mrpt::math::TPose2D& pose,
     mrpt::math::TTwist2D& velLocal,

@@ -46,6 +46,7 @@ class CRobot2DPoseEstimator
       const mrpt::math::TPose2D& newPose, mrpt::Clock::time_point tim);
 
   /** Updates the filter with new odometry readings. */
+  void updateOdomLostMirror();
   void processUpdateNewOdometry(
       const mrpt::math::TPose2D& newGlobalOdometry,
       mrpt::Clock::time_point cur_tim,

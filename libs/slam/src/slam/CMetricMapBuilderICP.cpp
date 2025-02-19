@@ -142,12 +142,14 @@ void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
   //         "processObservation(): obs is"
   //         << obs);
   // Is it an odometry observation??
+  static bool last_has_mirror_signal = has_mirror_signal;
   if (IS_CLASS(*obs, CObservationOdometry))
   {
     static int count_ = 0;
     count_++;
     static bool first_odom = 0;
     const CObservationOdometry::Ptr odo = std::dynamic_pointer_cast<CObservationOdometry>(obs);
+    // m_there_has_been_an_odometry=true;
     if (has_mirror_signal && first_odom)
     {
       CPose2D pose_before;
@@ -155,15 +157,25 @@ void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
       if (pose_before_valid_)
       {
         m_lastPoseEst.processUpdateNewPoseLocalization(odo->odometry.asTPose(), odo->timestamp);
+        // m_distSinceLastICP.updatePose(odo->odometry);
+       
         CPose2D robot_pose_now;
         if (m_lastPoseEst.getLatestRobotPose(robot_pose_now))
           this->accumulateRobotDisplacementCounters(robot_pose_now);  // currentKnownRobotPose -
-        if (count_ >= 20)
+        if (last_has_mirror_signal == 0)
         {
           MRPT_LOG_DEBUG_STREAM(
-              "processObservation(): obs is mirror "
-              "post_after="
-              << robot_pose_now);
+              "odom-mirror:"
+              "post_before="
+              << pose_before << " pose after:" << robot_pose_now);
+        }
+        // resetRobotDisplacementCounters(robot_pose_now);
+        if (count_ >= 20)
+        {
+          // MRPT_LOG_DEBUG_STREAM(
+          //     "processObservation(): obs is mirror "
+          //     "post_after="
+          //     << robot_pose_now);
           count_ = 0;
         }
       }
@@ -172,9 +184,10 @@ void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
 
     else
     {
-      first_odom = 1;
+      
       // MRPT_LOG_DEBUG("processObservation(): obs is CObservationOdometry");
       m_there_has_been_an_odometry = true;
+      // if(last_has_mirror_signal==1)
 
       // const CObservationOdometry::Ptr odo = std::dynamic_pointer_cast<CObservationOdometry>(obs);
       ASSERT_(odo->timestamp != INVALID_TIMESTAMP);
@@ -185,7 +198,12 @@ void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
       // Move our estimation:
       m_lastPoseEst.processUpdateNewOdometry(
           odo->odometry.asTPose(), odo->timestamp, odo->hasVelocities, odo->velocityLocal);
-
+      if (last_has_mirror_signal && first_odom)
+      {
+        m_lastPoseEst.updateOdomLostMirror();
+        // MRPT_LOG_DEBUG_STREAM("processObservation():update odom mirror");
+      }
+      first_odom = 1;
       if (pose_before_valid)
       {
         // Accumulate movement:
@@ -202,7 +220,7 @@ void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
         }
       }
     }
-
+    last_has_mirror_signal = has_mirror_signal;
   }  // end it's odometry
   else
   {
@@ -338,7 +356,7 @@ void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
 
         // a first gross estimation of map 2 relative to map 1.
         const auto firstGuess = mrpt::poses::CPose2D(initialEstimatedRobotPose);
-        MRPT_LOG_INFO_STREAM("processObservation():Init pose icp:" << firstGuess << std::endl);
+        // MRPT_LOG_INFO_STREAM("processObservation():Init pose icp:" << firstGuess << std::endl);
         CPosePDF::Ptr pestPose = ICP.Align(
             matchWith,      // Map 1
             &sensedPoints,  // Map 2
@@ -457,9 +475,9 @@ void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
 
       SF_Poses_seq.insert(pose3D, sf);
 
-      MRPT_LOG_INFO_STREAM(
-          "Map updated OK. Done in " << mrpt::system::formatTimeInterval(tictac.Tac())
-                                     << std::endl);
+      // MRPT_LOG_INFO_STREAM(
+      //     "Map updated OK. Done in " << mrpt::system::formatTimeInterval(tictac.Tac())
+      //                                << std::endl);
       // MRPT_LOG_INFO_STREAM(
       //       "NEW MAPBUILDER ICP"<< std::endl);
     }
