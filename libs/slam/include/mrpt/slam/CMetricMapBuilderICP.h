@@ -13,7 +13,7 @@
 #include <mrpt/slam/CMetricMapBuilder.h>
 
 #include <map>
-
+#define VERSION_LIB "1.0.1" //update wrong init map when use mirror only
 namespace mrpt::slam
 {
 /** A class for very simple 2D SLAM based on ICP. This is a non-probabilistic
@@ -99,11 +99,12 @@ class CMetricMapBuilderICP : public mrpt::slam::CMetricMapBuilder
   void initialize(
       const mrpt::maps::CSimpleMap& initialMap = mrpt::maps::CSimpleMap(),
       const mrpt::poses::CPosePDF* x0 = nullptr) override;
+  
 
   /** Returns a copy of the current best pose estimation as a pose PDF.
    */
   mrpt::poses::CPose3DPDF::Ptr getCurrentPoseEstimation() const override;
-
+  void getVersion(const char *&version);
   /** Sets the "current map file", thus that map will be loaded if it exists
    * or a new one will be created if it does not, and the updated map will be
    * save to that file when destroying the object.
@@ -153,6 +154,7 @@ class CMetricMapBuilderICP : public mrpt::slam::CMetricMapBuilder
    */
   void saveCurrentEstimationToImage(const std::string& file, bool formatEMF_BMP = true) override;
   void setMirrorSignal(bool mirror_signal);
+  void setOdomObs(bool use_odom_);
  private:
   /** The set of observations that leads to current map: */
   mrpt::maps::CSimpleMap SF_Poses_seq;
@@ -189,7 +191,8 @@ class CMetricMapBuilderICP : public mrpt::slam::CMetricMapBuilder
   /** Indexed by sensor label. */
   std::map<std::string, TDist> m_distSinceLastInsertion;
   bool m_there_has_been_an_odometry{false};
-  bool has_mirror_signal{true};
+  bool has_mirror_signal{false};
+  bool use_odom{false};
   void accumulateRobotDisplacementCounters(const mrpt::poses::CPose2D& new_pose);
   void resetRobotDisplacementCounters(const mrpt::poses::CPose2D& new_pose);
   

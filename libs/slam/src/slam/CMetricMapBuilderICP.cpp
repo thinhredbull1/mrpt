@@ -125,6 +125,7 @@ void CMetricMapBuilderICP::setMirrorSignal(bool mirror_signal)
 {
   has_mirror_signal = !mirror_signal;
 }
+void CMetricMapBuilderICP::setOdomObs(bool use_odom_) { use_odom = use_odom_; }
 void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
 {
   auto lck = mrpt::lockHelper(critZoneChangingMap);
@@ -148,17 +149,18 @@ void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
     static int count_ = 0;
     count_++;
     static bool first_odom = 0;
+
     const CObservationOdometry::Ptr odo = std::dynamic_pointer_cast<CObservationOdometry>(obs);
     // m_there_has_been_an_odometry=true;
-    if (has_mirror_signal && first_odom)
+    // MRPT_LOG_DEBUG_STREAM("USE ODOM:" << use_odom);
+    if (has_mirror_signal && (first_odom || !use_odom))
     {
       CPose2D pose_before;
       bool pose_before_valid_ = m_lastPoseEst.getLatestRobotPose(pose_before);
+      m_lastPoseEst.processUpdateNewPoseLocalization(odo->odometry.asTPose(), odo->timestamp);
       if (pose_before_valid_)
       {
-        m_lastPoseEst.processUpdateNewPoseLocalization(odo->odometry.asTPose(), odo->timestamp);
         // m_distSinceLastICP.updatePose(odo->odometry);
-       
         CPose2D robot_pose_now;
         if (m_lastPoseEst.getLatestRobotPose(robot_pose_now))
           this->accumulateRobotDisplacementCounters(robot_pose_now);  // currentKnownRobotPose -
@@ -167,24 +169,27 @@ void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
           MRPT_LOG_DEBUG_STREAM(
               "odom-mirror:"
               "post_before="
-              << pose_before << " pose after:" << robot_pose_now);
+              << pose_before << " pose after:" << robot_pose_now << "USE ODOM:" << use_odom);
         }
         // resetRobotDisplacementCounters(robot_pose_now);
-        if (count_ >= 20)
+        if (count_ >= 30)
         {
-          // MRPT_LOG_DEBUG_STREAM(
-          //     "processObservation(): obs is mirror "
-          //     "post_after="
-          //     << robot_pose_now);
+          MRPT_LOG_DEBUG_STREAM(
+              "processObservation(): obs is mirror "
+              "post_after="
+              << robot_pose_now);
           count_ = 0;
         }
+      }
+      else
+      {
+        MRPT_LOG_DEBUG_STREAM("dont have pose before");
       }
       // previousKnownRobotPose);
     }
 
-    else
+    else if (use_odom)
     {
-      
       // MRPT_LOG_DEBUG("processObservation(): obs is CObservationOdometry");
       m_there_has_been_an_odometry = true;
       // if(last_has_mirror_signal==1)
@@ -210,7 +215,7 @@ void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
         CPose2D pose_after;
         if (m_lastPoseEst.getLatestRobotPose(pose_after))
           this->accumulateRobotDisplacementCounters(pose_after);
-        if (count_ >= 20)
+        if (count_ >= 30)
         {
           MRPT_LOG_DEBUG_STREAM(
               "processObservation(): obs is CObservationOdometry, new "
@@ -553,7 +558,7 @@ CPose3DPDF::Ptr CMetricMapBuilderICP::getCurrentPoseEstimation() const
   pdf3D->copyFrom(pdf2D);
   return pdf3D;
 }
-
+void CMetricMapBuilderICP::getVersion(const char*& version) { version = VERSION_LIB; }
 /*---------------------------------------------------------------
             initialize
   ---------------------------------------------------------------*/
@@ -595,6 +600,7 @@ void CMetricMapBuilderICP::initialize(const CSimpleMap& initialMap, const CPoseP
     // Insert observations into the map:
     kf.sf->insertObservationsInto(metricMap, estimatedPose3D);
   }
+  // MRPT_LOG_DEBUG_STREAM("VERSION:"<<VERSION_LIB);
 
   MRPT_END
 }
