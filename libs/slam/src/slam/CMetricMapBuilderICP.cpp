@@ -125,6 +125,58 @@ void CMetricMapBuilderICP::setMirrorSignal(bool mirror_signal)
 {
   has_mirror_signal = !mirror_signal;
 }
+void CMetricMapBuilderICP::setLogICP(bool use_or_not)
+{
+  LogIcpFlag = use_or_not;
+}
+void CMetricMapBuilderICP::logICPData(
+    const mrpt::maps::CMetricMap* matchWith,
+    const mrpt::maps::CSimplePointsMap& sensedPoints,
+    const mrpt::poses::CPose2D& firstGuess)
+{
+  std::ofstream file(logFile);
+  if (!file.is_open())
+  {
+    MRPT_LOG_DEBUG("Failed to open LOG file");
+    return;
+  }
+  auto now = std::chrono::system_clock::now();
+  std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+  file << "# Timestamp: " << std::put_time(std::localtime(&now_c), "%Y-%m-%d %H:%M:%S") << "\n\n";
+  // Ghi firstGuess
+  file << "# FirstGuess (x, y, phi)\n";
+  file << firstGuess.x() << "," << firstGuess.y() << "," << firstGuess.phi() << "\n\n";
+
+  file << "# MatchWith (Map 1) - x, y\n";
+  if (const auto* simpleMap = dynamic_cast<const mrpt::maps::CSimplePointsMap*>(matchWith))
+  {
+    size_t numPoints;
+    const float *xs, *ys, *zs;
+    simpleMap->getPointsBuffer(numPoints, xs, ys, zs);
+    for (size_t i = 0; i < numPoints; i++)
+    {
+      file << xs[i] << "," << ys[i] << "," << zs[i] << "\n";
+    }
+  }
+  else
+  {
+    file << "Unsupported matchWith map type.\n";
+  }
+  file << "\n";
+
+  // Ghi sensedPoints (Map 2)
+  file << "# SensedPoints (Map 2) - x, y\n";
+  size_t numPoints;
+  const float *xs, *ys, *zs;
+  sensedPoints.getPointsBuffer(numPoints, xs, ys, zs);
+  for (size_t i = 0; i < numPoints; i++)
+  {
+    file << xs[i] << "," << ys[i] << "," << zs[i] << "\n";
+  }
+
+  file.close();
+  // std::cout << "Logged ICP data to " << filename << std::endl;
+}
 void CMetricMapBuilderICP::setOdomObs(bool use_odom_) { use_odom = use_odom_; }
 void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
 {
@@ -361,12 +413,15 @@ void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
 
         // a first gross estimation of map 2 relative to map 1.
         const auto firstGuess = mrpt::poses::CPose2D(initialEstimatedRobotPose);
+        const auto firstGuessLog = firstGuess;
         // MRPT_LOG_INFO_STREAM("processObservation():Init pose icp:" << firstGuess << std::endl);
+       
         CPosePDF::Ptr pestPose = ICP.Align(
             matchWith,      // Map 1
             &sensedPoints,  // Map 2
             firstGuess, icpReturn);
-
+        
+         bool lowICP=false;
         if (icpReturn.goodness > ICP_options.minICPgoodnessToAccept)
         {
           // save estimation:
@@ -391,10 +446,11 @@ void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
         }
         else
         {
+          lowICP=true;
           MRPT_LOG_WARN_STREAM(
               "Ignoring ICP of low quality: " << icpReturn.goodness * 100 << std::endl);
         }
-
+        if(LogIcpFlag || lowICP) logICPData( matchWith, sensedPoints, firstGuessLog);
         // Compute the transversed length:
         CPose2D currentKnownRobotPose;
         m_lastPoseEst.getLatestRobotPose(currentKnownRobotPose);
@@ -533,6 +589,10 @@ void CMetricMapBuilderICP::processActionObservation(CActionCollection& action, C
 /*---------------------------------------------------------------
             setCurrentMapFile
   ---------------------------------------------------------------*/
+void CMetricMapBuilderICP::setLogFile(const char* filename)
+{
+  logFile = filename;
+}
 void CMetricMapBuilderICP::setCurrentMapFile(const char* mapFile)
 {
   // Save current map to current file:

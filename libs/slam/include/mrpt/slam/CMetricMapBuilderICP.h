@@ -11,9 +11,12 @@
 #include <mrpt/poses/CRobot2DPoseEstimator.h>
 #include <mrpt/slam/CICP.h>
 #include <mrpt/slam/CMetricMapBuilder.h>
-
+#include <fstream>
+#include <chrono>
+#include <iomanip>
+#include <ctime>
 #include <map>
-#define VERSION_LIB "1.0.1" //update wrong init map when use mirror only
+#define VERSION_LIB "1.1.0" //LOG ICP ver
 namespace mrpt::slam
 {
 /** A class for very simple 2D SLAM based on ICP. This is a non-probabilistic
@@ -110,7 +113,7 @@ class CMetricMapBuilderICP : public mrpt::slam::CMetricMapBuilder
    * save to that file when destroying the object.
    */
   void setCurrentMapFile(const char* mapFile);
-
+  void setLogFile(const char* filename);
   /** Appends a new action and observations to update this map: See the
    *description of the class at the top of this page to see a more complete
    *description.
@@ -121,6 +124,10 @@ class CMetricMapBuilderICP : public mrpt::slam::CMetricMapBuilder
    *CMetricMapBuilderICP::ICP_options
    * \sa processObservation
    */
+  void logICPData(
+                const mrpt::maps::CMetricMap* matchWith, 
+                const mrpt::maps::CSimplePointsMap& sensedPoints, 
+                const mrpt::poses::CPose2D& firstGuess);
   void processActionObservation(
       mrpt::obs::CActionCollection& action, mrpt::obs::CSensoryFrame& in_SF) override;
 
@@ -155,6 +162,7 @@ class CMetricMapBuilderICP : public mrpt::slam::CMetricMapBuilder
   void saveCurrentEstimationToImage(const std::string& file, bool formatEMF_BMP = true) override;
   void setMirrorSignal(bool mirror_signal);
   void setOdomObs(bool use_odom_);
+  void setLogICP(bool use_or_not);
  private:
   /** The set of observations that leads to current map: */
   mrpt::maps::CSimpleMap SF_Poses_seq;
@@ -164,6 +172,7 @@ class CMetricMapBuilderICP : public mrpt::slam::CMetricMapBuilder
 
   /** Current map file. */
   std::string currentMapFile;
+  std::string logFile;
 
   /** The pose estimation by the alignment algorithm (ICP). */
   /** Last pose estimation (Mean) */
@@ -175,7 +184,7 @@ class CMetricMapBuilderICP : public mrpt::slam::CMetricMapBuilder
    */
   std::deque<mrpt::math::TPose2D> m_estRobotPath;
   mrpt::poses::CPose2D m_auxAccumOdometry;
-
+  
   /** Traveled distances from last map update / ICP-based localization. */
   struct TDist
   {
@@ -192,6 +201,7 @@ class CMetricMapBuilderICP : public mrpt::slam::CMetricMapBuilder
   std::map<std::string, TDist> m_distSinceLastInsertion;
   bool m_there_has_been_an_odometry{false};
   bool has_mirror_signal{false};
+  bool LogIcpFlag{false};
   bool use_odom{false};
   void accumulateRobotDisplacementCounters(const mrpt::poses::CPose2D& new_pose);
   void resetRobotDisplacementCounters(const mrpt::poses::CPose2D& new_pose);
