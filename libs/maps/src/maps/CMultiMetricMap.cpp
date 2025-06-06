@@ -109,7 +109,13 @@ CMultiMetricMap::CMultiMetricMap(const TSetOfMetricMapInitializers& i)
   setListOfMaps(i);
   MRPT_END
 }
+size_t CMultiMetricMap::EraseMap(size_t sizeErase)
+{
 
+  if(maps.size()>sizeErase)maps.pop_front();
+  return maps.size();
+ 
+}
 void CMultiMetricMap::setListOfMaps(const TSetOfMetricMapInitializers& inits)
 {
   MRPT_START

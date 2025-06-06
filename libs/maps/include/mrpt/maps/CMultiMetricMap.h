@@ -196,7 +196,7 @@ class CMultiMetricMap : public mrpt::maps::CMetricMap
   /** Sets the list of internal map according to the passed list of map
    * initializers (current maps will be deleted) */
   void setListOfMaps(const mrpt::maps::TSetOfMetricMapInitializers& init);
-
+  size_t EraseMap(size_t sizeErase);
   // Implementation of virtual CMetricMap methods.
   // See docs in base class:
 

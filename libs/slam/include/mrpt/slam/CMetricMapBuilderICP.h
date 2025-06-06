@@ -10,13 +10,14 @@
 
 #include <mrpt/poses/CRobot2DPoseEstimator.h>
 #include <mrpt/slam/CICP.h>
+#include <mrpt/maps/COccupancyGridMap2D.h>
 #include <mrpt/slam/CMetricMapBuilder.h>
 #include <fstream>
 #include <chrono>
 #include <iomanip>
 #include <ctime>
 #include <map>
-#define VERSION_LIB "1.1.0" //LOG ICP ver
+#define VERSION_LIB "1.2.0" //RESET MAP VER
 namespace mrpt::slam
 {
 /** A class for very simple 2D SLAM based on ICP. This is a non-probabilistic
@@ -57,7 +58,7 @@ class CMetricMapBuilderICP : public mrpt::slam::CMetricMapBuilder
     /** (default:false) Match against the occupancy grid or the points map?
      * The former is quicker but less precise. */
     bool matchAgainstTheGrid;
-
+   
     /** Minimum robot linear (m) displacement for a new observation to be
      * inserted in the map. */
     double insertionLinDistance;
@@ -112,6 +113,7 @@ class CMetricMapBuilderICP : public mrpt::slam::CMetricMapBuilder
    * or a new one will be created if it does not, and the updated map will be
    * save to that file when destroying the object.
    */
+
   void setCurrentMapFile(const char* mapFile);
   void setLogFile(const char* filename);
   /** Appends a new action and observations to update this map: See the
@@ -124,6 +126,7 @@ class CMetricMapBuilderICP : public mrpt::slam::CMetricMapBuilder
    *CMetricMapBuilderICP::ICP_options
    * \sa processObservation
    */
+   void setEraseSize(size_t eraseSize);
   void logICPData(
                 const mrpt::maps::CMetricMap* matchWith, 
                 const mrpt::maps::CSimplePointsMap& sensedPoints, 
@@ -140,14 +143,16 @@ class CMetricMapBuilderICP : public mrpt::slam::CMetricMapBuilder
    CMetricMapBuilderICP::ICP_options
   */
   void processObservation(const mrpt::obs::CObservation::Ptr& obs);
-
+  void resetMapFromPose(mrpt::math::TPose2D x0);
+  void setMaxSizeMap(size_t mapSize);
   /** Fills "out_map" with the set of "poses"-"sensory-frames", thus the so
    * far built map */
   void getCurrentlyBuiltMap(mrpt::maps::CSimpleMap& out_map) const override;
 
   /** Returns the 2D points of current local map */
   void getCurrentMapPoints(std::vector<float>& x, std::vector<float>& y);
-
+  void trimOccupancyGridMap2D( mrpt::maps::COccupancyGridMap2D& gridMap,const mrpt::poses::CPose2D& center,double radius);
+  void trimPointsMap(mrpt::maps::CMultiMetricMap& metric_map, const mrpt::poses::CPose2D& robotPose);
   const mrpt::maps::CMultiMetricMap& getCurrentlyBuiltMetricMap() const override;
 
   /** Returns just how many sensory-frames are stored in the currently build
@@ -199,6 +204,8 @@ class CMetricMapBuilderICP : public mrpt::slam::CMetricMapBuilder
   TDist m_distSinceLastICP;
   /** Indexed by sensor label. */
   std::map<std::string, TDist> m_distSinceLastInsertion;
+  size_t sizeErease{100};
+  size_t maxSize{10000};
   bool m_there_has_been_an_odometry{false};
   bool has_mirror_signal{false};
   bool LogIcpFlag{false};

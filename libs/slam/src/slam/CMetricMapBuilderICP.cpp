@@ -125,10 +125,7 @@ void CMetricMapBuilderICP::setMirrorSignal(bool mirror_signal)
 {
   has_mirror_signal = !mirror_signal;
 }
-void CMetricMapBuilderICP::setLogICP(bool use_or_not)
-{
-  LogIcpFlag = use_or_not;
-}
+void CMetricMapBuilderICP::setLogICP(bool use_or_not) { LogIcpFlag = use_or_not; }
 void CMetricMapBuilderICP::logICPData(
     const mrpt::maps::CMetricMap* matchWith,
     const mrpt::maps::CSimplePointsMap& sensedPoints,
@@ -177,6 +174,106 @@ void CMetricMapBuilderICP::logICPData(
   file.close();
   // std::cout << "Logged ICP data to " << filename << std::endl;
 }
+void CMetricMapBuilderICP::resetMapFromPose(mrpt::math::TPose2D x0)
+{
+  m_auxAccumOdometry = CPose2D(0, 0, 0);
+
+  m_distSinceLastICP.lin = m_distSinceLastICP.ang = 0;
+  m_distSinceLastInsertion.clear();
+  auto lck = mrpt::lockHelper(critZoneChangingMap);
+
+  // Create metric maps:
+  metricMap.setListOfMaps(ICP_options.mapInitializers);
+  m_lastPoseEst.reset();
+
+  m_lastPoseEst.processUpdateNewPoseLocalization(x0, mrpt::Clock::now());
+}
+void CMetricMapBuilderICP::setMaxSizeMap(size_t mapSize){
+  maxSize=mapSize;
+}
+void CMetricMapBuilderICP::trimPointsMap(
+    mrpt::maps::CMultiMetricMap& metric_map,
+    const mrpt::poses::CPose2D& robotPose)
+{
+  auto pm = metric_map.mapByClass<mrpt::maps::CSimplePointsMap>();
+  // MRPT_LOG_INFO(
+  //       mrpt::format(
+  //           "pm\n"));
+  if (!pm) return;
+  static uint8_t count_size = 0;
+  count_size += 1;
+  // MRPT_LOG_INFO(mrpt::format("pm found\n"));
+  auto& points = *pm;
+
+  const double cx = robotPose.x();
+  const double cy = robotPose.y();
+
+  mrpt::maps::CSimplePointsMap newPoints;
+
+  const size_t N = points.size();
+  if (N >= maxSize)
+  {
+    for (size_t i = N-maxSize; i < N; ++i)
+    {
+      float x, y, z;
+      points.getPoint(i, x, y, z);
+      newPoints.insertPoint(x,y,z);
+    }
+
+    // Xóa hết points hiện tại
+    points.clear();
+
+    // Thêm lại điểm từ newPoints vào points
+    for (size_t i = 0; i < newPoints.size(); ++i)
+    {
+      float x, y, z;
+      newPoints.getPoint(i, x, y, z);
+      points.insertPoint(x, y, z);
+    }
+
+    if (count_size >= 5)
+    {
+      MRPT_LOG_INFO(mrpt::format("last%ld new:%ld\n", N, newPoints.size()));
+    }
+    points.mark_as_modified();
+  }
+}
+void CMetricMapBuilderICP::trimOccupancyGridMap2D(
+    mrpt::maps::COccupancyGridMap2D& gridMap, const mrpt::poses::CPose2D& center, double radius)
+{
+  float resolution = gridMap.getResolution();
+  float old_x_min = gridMap.getXMin();
+  float old_y_min = gridMap.getYMin();
+
+  // Tạo map mới với bounding box quanh robot
+  double x_min_new = center.x() - radius;
+  double x_max_new = center.x() + radius;
+  double y_min_new = center.y() - radius;
+  double y_max_new = center.y() + radius;
+
+  auto newGrid =
+      mrpt::maps::COccupancyGridMap2D(x_min_new, x_max_new, y_min_new, y_max_new, resolution);
+
+  // Lặp qua tất cả cell cũ
+  for (int cx = 0; cx < gridMap.getSizeX(); ++cx)
+  {
+    for (int cy = 0; cy < gridMap.getSizeY(); ++cy)
+    {
+      float x = old_x_min + (cx + 0.5f) * resolution;
+      float y = old_y_min + (cy + 0.5f) * resolution;
+
+      // Chỉ giữ điểm nằm trong bán kính
+      if (std::hypot(x - center.x(), y - center.y()) <= radius)
+      {
+        float occ = gridMap.getCell(cx, cy);
+        newGrid.setPos(x, y, occ);
+      }
+    }
+  }
+
+  gridMap = newGrid;
+}
+void CMetricMapBuilderICP::setEraseSize(size_t sizeErase) { sizeErease = sizeErase; }
 void CMetricMapBuilderICP::setOdomObs(bool use_odom_) { use_odom = use_odom_; }
 void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
 {
@@ -415,13 +512,13 @@ void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
         const auto firstGuess = mrpt::poses::CPose2D(initialEstimatedRobotPose);
         const auto firstGuessLog = firstGuess;
         // MRPT_LOG_INFO_STREAM("processObservation():Init pose icp:" << firstGuess << std::endl);
-       
+
         CPosePDF::Ptr pestPose = ICP.Align(
             matchWith,      // Map 1
             &sensedPoints,  // Map 2
             firstGuess, icpReturn);
-        
-         bool lowICP=false;
+
+        bool lowICP = false;
         if (icpReturn.goodness > ICP_options.minICPgoodnessToAccept)
         {
           // save estimation:
@@ -434,23 +531,28 @@ void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
           m_lastPoseEst_cov = pEst2D.cov;
 
           m_distSinceLastICP.updatePose(pEst2D.mean);
-
-          // Debug output to console:
-          MRPT_LOG_INFO_STREAM(
-              "processObservation: previousPose=" << previousKnownRobotPose << "-> currentPose="
-                                                  << pEst2D.getMeanVal() << std::endl);
-          MRPT_LOG_INFO(format(
-              "[CMetricMapBuilderICP]   Fit:%.1f%% Itr:%i In "
-              "%.02fms \n",
-              icpReturn.goodness * 100, icpReturn.nIterations, 1000 * icpReturn.executionTime));
+          static uint8_t count_log = 0;
+          count_log += 1;
+          if (count_log >= 200 || (1000 * icpReturn.executionTime) > 50)
+          {
+            count_log = 0;
+            // Debug output to console:
+            MRPT_LOG_INFO_STREAM(
+                "processObservation: previousPose=" << previousKnownRobotPose << "-> currentPose="
+                                                    << pEst2D.getMeanVal() << std::endl);
+            MRPT_LOG_INFO(format(
+                "[CMetricMapBuilderICP]   Fit:%.1f%% Itr:%i In "
+                "%.02fms \n",
+                icpReturn.goodness * 100, icpReturn.nIterations, 1000 * icpReturn.executionTime));
+          }
         }
         else
         {
-          lowICP=true;
+          lowICP = true;
           MRPT_LOG_WARN_STREAM(
               "Ignoring ICP of low quality: " << icpReturn.goodness * 100 << std::endl);
         }
-        if(LogIcpFlag || lowICP) logICPData( matchWith, sensedPoints, firstGuessLog);
+        if (LogIcpFlag || lowICP) logICPData(matchWith, sensedPoints, firstGuessLog);
         // Compute the transversed length:
         CPose2D currentKnownRobotPose;
         m_lastPoseEst.getLatestRobotPose(currentKnownRobotPose);
@@ -515,11 +617,25 @@ void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
       resetRobotDisplacementCounters(currentKnownRobotPose);
       // m_distSinceLastInsertion[obs->sensorLabel].updatePose(currentKnownRobotPose);
 
-      MRPT_LOG_INFO(
-          mrpt::format("Updating map from pose %s\n", currentKnownRobotPose.asString().c_str()));
-
       CPose3D estimatedPose3D(currentKnownRobotPose);
       const bool anymap_update = metricMap.insertObservationPtr(obs, estimatedPose3D);
+      MRPT_LOG_INFO(
+          mrpt::format(
+              "Updating map from pose %s map:%ld\n", currentKnownRobotPose.asString().c_str(),
+              metricMap.EraseMap(sizeErease)));
+      // double keepRadius = 10.0;  // mét
+      if (ICP_options.matchAgainstTheGrid)
+      {
+        if (auto gridMap = metricMap.mapByClass<mrpt::maps::COccupancyGridMap2D>(); gridMap)
+        {
+          trimOccupancyGridMap2D(*gridMap, currentKnownRobotPose, sizeErease);
+        }
+      }
+      else
+      {
+        // MRPT_LOG_INFO(mrpt::format("TRIM\n"));
+        trimPointsMap(metricMap, currentKnownRobotPose);
+      }
       if (!anymap_update)
         MRPT_LOG_WARN_STREAM(
             "**No map was updated** after inserting an "
@@ -528,13 +644,13 @@ void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
             << obs->GetRuntimeClass()->className << "`");
 
       // Add to the vector of "poses"-"SFs" pairs:
-      CPosePDFGaussian posePDF(currentKnownRobotPose);
-      CPose3DPDF::Ptr pose3D = CPose3DPDF::Ptr(CPose3DPDF::createFrom2D(posePDF));
+      // CPosePDFGaussian posePDF(currentKnownRobotPose);
+      // CPose3DPDF::Ptr pose3D = CPose3DPDF::Ptr(CPose3DPDF::createFrom2D(posePDF));
 
-      CSensoryFrame::Ptr sf = std::make_shared<CSensoryFrame>();
-      sf->insert(obs);
+      // CSensoryFrame::Ptr sf = std::make_shared<CSensoryFrame>();
+      // sf->insert(obs);
 
-      SF_Poses_seq.insert(pose3D, sf);
+      // SF_Poses_seq.insert(pose3D, sf);
 
       // MRPT_LOG_INFO_STREAM(
       //     "Map updated OK. Done in " << mrpt::system::formatTimeInterval(tictac.Tac())
@@ -546,10 +662,10 @@ void CMetricMapBuilderICP::processObservation(const CObservation::Ptr& obs)
   }  // end other observation
 
   // Robot path history:
-  {
-    TPose2D p;
-    if (m_lastPoseEst.getLatestRobotPose(p)) m_estRobotPath.push_back(p);
-  }
+  // {
+  //   TPose2D p;
+  //   if (m_lastPoseEst.getLatestRobotPose(p)) m_estRobotPath.push_back(p);
+  // }
 
   MRPT_END
 
@@ -589,10 +705,7 @@ void CMetricMapBuilderICP::processActionObservation(CActionCollection& action, C
 /*---------------------------------------------------------------
             setCurrentMapFile
   ---------------------------------------------------------------*/
-void CMetricMapBuilderICP::setLogFile(const char* filename)
-{
-  logFile = filename;
-}
+void CMetricMapBuilderICP::setLogFile(const char* filename) { logFile = filename; }
 void CMetricMapBuilderICP::setCurrentMapFile(const char* mapFile)
 {
   // Save current map to current file:
